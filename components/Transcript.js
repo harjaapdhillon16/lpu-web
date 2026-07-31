@@ -1,0 +1,148 @@
+"use client";
+
+/* eslint-disable @next/next/no-img-element */
+
+function displayDate(value) {
+  if (!value) return "—";
+  const date = new Date(`${value}T00:00:00`);
+  return new Intl.DateTimeFormat("en-IN", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  }).format(date);
+}
+
+function Field({ label, value }) {
+  return (
+    <div className="transcript-field">
+      <strong>{label}</strong>
+      <span>:</span>
+      <b>{value || "—"}</b>
+    </div>
+  );
+}
+
+export default function Transcript({ result, documentRef }) {
+  return (
+    <article ref={documentRef} className="transcript-document">
+      <header className="transcript-letterhead">
+        <img src="/assets/portal-mark.svg" alt="" />
+        <div>
+          <strong>ACADEMIC RECORDS OFFICE</strong>
+          <span>University Verification Portal</span>
+          <small>Structured academic record</small>
+        </div>
+      </header>
+
+      <div className="transcript-institution-copy">
+        <strong>Academic Verification Portal</strong>
+        <span>Record generated from administrator-provided structured data</span>
+      </div>
+
+      <h1>Provisional Academic Transcript</h1>
+      <h2>{result.programme}</h2>
+
+      <section className="transcript-profile">
+        <div>
+          <Field label="Registration No." value={result.registrationNumber} />
+          <Field label="Batch Year" value={result.batchYear} />
+          <Field label="Mode" value={result.studyMode} />
+        </div>
+        <div>
+          <Field label="Name" value={result.studentName} />
+          <Field label="Father&apos;s Name" value={result.fatherName} />
+          <Field label="Mother&apos;s Name" value={result.motherName} />
+        </div>
+        <div className="candidate-photo-frame">
+          {result.photoUrl ? (
+            <img src={result.photoUrl} alt={`Candidate ${result.studentName}`} crossOrigin="anonymous" />
+          ) : (
+            <div className="photo-placeholder">
+              <span>PHOTO</span>
+              <small>Not provided</small>
+            </div>
+          )}
+        </div>
+      </section>
+
+      <div className="term-tables">
+        {result.terms.length ? (
+          result.terms.map((term, termIndex) => (
+            <section className="transcript-term" key={`${term.label}-${termIndex}`}>
+              <div className="term-heading">
+                <strong>{term.label || `Term : ${termIndex + 1}`}</strong>
+                <strong>TGPA : {term.tgpa || "—"}</strong>
+                <strong>Equivalent percentage : {term.percentage ? `${term.percentage}%` : "—"}</strong>
+              </div>
+              <table>
+                <thead>
+                  <tr>
+                    <th>S.No.</th>
+                    <th>Course</th>
+                    <th>Credits</th>
+                    <th>Grade</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {term.courses.map((course, courseIndex) => (
+                    <tr key={`${course.code}-${courseIndex}`}>
+                      <td>{courseIndex + 1}</td>
+                      <td>
+                        {course.code}
+                        {course.code && course.name ? " :: " : ""}
+                        {course.name}
+                      </td>
+                      <td>{course.credits || "—"}</td>
+                      <td>{course.grade || "—"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </section>
+          ))
+        ) : (
+          <section className="transcript-term empty-term">
+            <div className="term-heading">
+              <strong>Result details</strong>
+            </div>
+            <p>No course-level result rows were entered for this record.</p>
+          </section>
+        )}
+      </div>
+
+      <section className="transcript-completion">
+        <p>{result.completionStatement}</p>
+        <div>
+          <strong>CGPA : {result.cgpa || "—"}</strong>
+          <strong>
+            Equivalent Percentage : {result.equivalentPercentage ? `${result.equivalentPercentage}%` : "—"}
+          </strong>
+        </div>
+      </section>
+
+      <ul className="transcript-notes">
+        <li>This is an electronically generated transcript.</li>
+        <li>&quot;Credit&quot; means credit allotted to the course and &quot;Grade&quot; is the recorded grade.</li>
+      </ul>
+
+      <footer className="transcript-footer">
+        <div className="certificate-meta">
+          <strong>Certificate No. {result.certificateNumber}</strong>
+          <strong>Date of Printing: {displayDate(result.printDate)}</strong>
+          <strong>Place: {result.place}</strong>
+        </div>
+        <div className="page-number">Generated record</div>
+        <div className="signature-block">
+          <span className="digital-mark">VERIFIED</span>
+          <strong>Generated By</strong>
+          <span>Academic Records Portal</span>
+        </div>
+        <div className="signature-block">
+          <span className="digital-mark">AUTHENTICATED</span>
+          <strong>Records Controller</strong>
+          <span>Academic Records Office</span>
+        </div>
+      </footer>
+    </article>
+  );
+}
