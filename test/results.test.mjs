@@ -1,71 +1,61 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { candidatePhotoFromForm, normalizeIdentifier, validateResultPayload } from "../lib/results.js";
+import {
+  normalizeIdentifier,
+  publicLookupPayload,
+  resultPdfFromForm,
+  validateResultPayload,
+} from "../lib/results.js";
 
 const validPayload = {
   documentType: "Academic Transcript",
-  registrationNumber: " 1220 0001 ",
-  documentNumber: "tr-2026-001",
+  registrationNumber: " 1180 1234 ",
+  documentNumber: "lpu/tr/2026/8891",
   studentName: "Aarav Sharma",
-  programme: "Bachelor of Arts",
-  fatherName: "Rakesh Sharma",
-  motherName: "Meena Sharma",
-  batchYear: "2022",
-  studyMode: "Regular",
+  programme: "Bachelor of Technology (Computer Science)",
   examSession: "May 2026",
-  resultStatus: "Completed",
-  cgpa: "8.64",
-  equivalentPercentage: "78.20",
-  issueDate: "2026-06-20",
-  certificateNumber: "CERT-2026-001",
-  printDate: "2026-07-31",
-  place: "Phagwara (Punjab)",
-  completionStatement: "The student has successfully completed the Programme",
-  terms: [
-    {
-      label: "Term : 1",
-      tgpa: "8.45",
-      percentage: "76.10",
-      courses: [
-        { code: "ENG101", name: "English I", credits: "4", grade: "A" },
-        { code: "HIS101", name: "Indian History", credits: "4", grade: "A-" },
-      ],
-    },
-  ],
+  issueDate: "2026-07-20",
 };
 
-test("structured transcript payload is normalized and retains term rows", () => {
-  const result = validateResultPayload(validPayload);
-  assert.equal(result.registrationNumber, "12200001");
-  assert.equal(result.documentNumber, "TR-2026-001");
-  assert.equal(result.terms.length, 1);
-  assert.equal(result.terms[0].courses[1].name, "Indian History");
+function pdfFile(bytes, { name = "transcript.pdf" } = {}) {
+  const buffer = Buffer.from(bytes);
+  return {
+    name,
+    size: buffer.length,
+    arrayBuffer: async () => buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.length),
+  };
+}
+
+test("the lookup identifiers are normalized the same way for admin and public input", () => {
+  const payload = validateResultPayload(validPayload);
+  assert.equal(payload.registrationNumber, "11801234");
+  assert.equal(payload.documentNumber, "LPU/TR/2026/8891");
+
+  const lookup = publicLookupPayload({ ...validPayload, registrationNumber: "1180 1234" });
+  assert.equal(lookup.registrationNumber, payload.registrationNumber);
+  assert.equal(lookup.documentNumber, payload.documentNumber);
+  assert.equal(normalizeIdentifier(" lpu 26 / 1 "), "LPU26/1");
 });
 
-test("invalid percentage and unsupported identifiers are rejected", () => {
-  assert.throws(
-    () => validateResultPayload({ ...validPayload, equivalentPercentage: "120" }),
-    /Equivalent percentage/,
-  );
+test("missing identifiers and unsupported characters are rejected", () => {
+  assert.throws(() => validateResultPayload({ ...validPayload, studentName: "" }), /student name/);
+  assert.throws(() => validateResultPayload({ ...validPayload, documentType: "Marksheet" }), /Invalid document type/);
   assert.throws(
     () => validateResultPayload({ ...validPayload, registrationNumber: "ABC @ 12" }),
     /unsupported characters/,
   );
 });
 
-test("candidate image validation checks magic bytes and size", async () => {
-  const pngHeader = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0]);
-  const validImage = new File([pngHeader], "candidate.png", { type: "image/png" });
-  const image = await candidatePhotoFromForm(validImage);
-  assert.equal(image.mime, "image/png");
-  assert.equal(image.filename, "candidate.png");
+test("only real PDF uploads are accepted", async () => {
+  const accepted = await resultPdfFromForm(pdfFile("%PDF-1.7\nresult body"));
+  assert.equal(accepted.filename, "transcript.pdf");
+  assert.equal(accepted.size, Buffer.from("%PDF-1.7\nresult body").length);
 
-  const invalidImage = new File([new TextEncoder().encode("not an image")], "candidate.png", {
-    type: "image/png",
-  });
-  await assert.rejects(() => candidatePhotoFromForm(invalidImage), /valid JPG, PNG, or WebP/);
+  await assert.rejects(() => resultPdfFromForm(pdfFile("<html>not a pdf</html>")), /valid PDF/);
+  assert.equal(await resultPdfFromForm(null), null);
 });
 
-test("identifier normalization removes whitespace and uses uppercase", () => {
-  assert.equal(normalizeIdentifier(" tr 2026 / ab-1 "), "TR2026/AB-1");
+test("an uploaded name without an extension still gets one", async () => {
+  const uploaded = await resultPdfFromForm(pdfFile("%PDF-1.4 body", { name: "result copy" }));
+  assert.equal(uploaded.filename, "result_copy.pdf");
 });

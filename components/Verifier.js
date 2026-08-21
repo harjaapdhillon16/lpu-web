@@ -2,8 +2,7 @@
 
 /* eslint-disable @next/next/no-img-element */
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
-import Transcript from "./Transcript";
+import { useEffect, useState } from "react";
 
 const initialForm = {
   documentType: "",
@@ -378,8 +377,6 @@ export default function Verifier() {
   const [result, setResult] = useState(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const [downloading, setDownloading] = useState(false);
-  const transcriptRef = useRef(null);
 
   function updateField(event) {
     setForm((current) => ({ ...current, [event.target.name]: event.target.value }));
@@ -408,50 +405,6 @@ export default function Verifier() {
       setError(requestError.message);
     } finally {
       setLoading(false);
-    }
-  }
-
-  async function downloadPdf() {
-    if (!transcriptRef.current) return;
-    setDownloading(true);
-    try {
-      const images = [...transcriptRef.current.querySelectorAll("img")];
-      await Promise.all(
-        images.map((image) =>
-          image.complete
-            ? Promise.resolve()
-            : new Promise((resolve) => {
-                image.addEventListener("load", resolve, { once: true });
-                image.addEventListener("error", resolve, { once: true });
-              }),
-        ),
-      );
-      const [{ default: html2canvas }, { jsPDF }] = await Promise.all([import("html2canvas"), import("jspdf")]);
-      const canvas = await html2canvas(transcriptRef.current, {
-        scale: 2,
-        useCORS: true,
-        backgroundColor: "#ffffff",
-        logging: false,
-      });
-      const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4", compress: true });
-      const pageWidth = 210;
-      const pageHeight = 297;
-      const imageHeight = (canvas.height * pageWidth) / canvas.width;
-      const pageCount = Math.max(1, Math.ceil((imageHeight - 0.5) / pageHeight));
-      const image = canvas.toDataURL("image/jpeg", 0.94);
-
-      for (let page = 0; page < pageCount; page += 1) {
-        if (page > 0) pdf.addPage();
-        pdf.addImage(image, "JPEG", 0, -(page * pageHeight), pageWidth, imageHeight, undefined, "FAST");
-      }
-      const filename = `${result.registrationNumber}-${result.certificateNumber || "transcript"}`
-        .replace(/[^A-Za-z0-9._-]/g, "_")
-        .slice(0, 100);
-      pdf.save(`${filename}.pdf`);
-    } catch (downloadError) {
-      setError(`PDF generation failed: ${downloadError.message}`);
-    } finally {
-      setDownloading(false);
     }
   }
 
@@ -518,24 +471,32 @@ export default function Verifier() {
             <div className="result-toolbar">
               <div>
                 <span className="verified-badge">✓ Record matched</span>
-                <h2>Structured transcript preview</h2>
-                <p>The PDF is generated from this HTML only when requested.</p>
+                <h2>{result.documentType} for {result.studentName}</h2>
+                <p>
+                  Registration {result.registrationNumber} &middot; Document {result.documentNumber}
+                  {result.examSession ? ` · ${result.examSession}` : ""}
+                </p>
               </div>
               <div>
                 <button className="outline-button" type="button" onClick={resetVerification}>
                   Verify another
                 </button>
-                <button className="orange-button" type="button" onClick={downloadPdf} disabled={downloading}>
-                  {downloading ? "Generating PDF…" : "Download PDF"} <span>↓</span>
-                </button>
+                <a className="orange-button" href={`${result.pdfUrl}&download=1`}>
+                  Download PDF <span>↓</span>
+                </a>
               </div>
             </div>
             {error && <p className="result-error">{error}</p>}
-            <div className="transcript-stage">
-              <Transcript result={result} documentRef={transcriptRef} />
+            <div className="pdf-stage">
+              <iframe title={`${result.documentType} - ${result.studentName}`} src={result.pdfUrl} />
+              <p className="pdf-fallback">
+                Cannot see the document?{" "}
+                <a href={result.pdfUrl} target="_blank" rel="noreferrer">Open the result PDF in a new tab</a>.
+              </p>
             </div>
           </section>
         )}
+
       </main>
       <SiteFooter />
       <FloatingTools />
