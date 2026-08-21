@@ -10,35 +10,23 @@ const emptyResult = {
   documentNumber: "",
   studentName: "",
   programme: "",
-  fatherName: "",
-  motherName: "",
-  batchYear: "",
-  studyMode: "",
   examSession: "",
-  resultStatus: "Completed",
-  cgpa: "",
-  equivalentPercentage: "",
   issueDate: "",
-  certificateNumber: "",
-  printDate: "",
-  place: "Phagwara (Punjab)",
-  completionStatement: "The student has successfully completed the Programme",
-  terms: [],
 };
 
-function emptyTerm(number) {
-  return { label: `Term : ${number}`, tgpa: "", percentage: "", courses: [] };
-}
-
-function emptyCourse() {
-  return { code: "", name: "", credits: "", grade: "" };
-}
+const documentTypes = ["Degree", "Academic Transcript", "Skill Development Certificate"];
 
 async function api(url, options = {}) {
   const response = await fetch(url, options);
   const data = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(data.error || "The request could not be completed.");
   return data;
+}
+
+function readableSize(bytes) {
+  if (!bytes) return "—";
+  if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 function Login({ onAuthenticated }) {
@@ -72,11 +60,11 @@ function Login({ onAuthenticated }) {
         <div>
           <span className="eyebrow">Academic Records Office</span>
           <h1>Results<br />administration.</h1>
-          <p>Enter every transcript field, candidate photograph, term, course, credit, and grade as structured data.</p>
+          <p>Enter the verification identifiers for a record and upload the result PDF that the public portal should display.</p>
         </div>
         <aside>
           <strong>UNIVERSITY RECORDS PORTAL</strong>
-          <span>Manage the structured records available through public verification.</span>
+          <span>Manage the result documents available through public verification.</span>
         </aside>
       </section>
       <section className="admin-login-panel">
@@ -104,10 +92,31 @@ function Login({ onAuthenticated }) {
   );
 }
 
+function TextField({ label, name, form, onChange, required = false, full = false, ...props }) {
+  return (
+    <label className={full ? "full-field" : ""}>
+      <span>{label}{required ? " *" : ""}</span>
+      <input name={name} value={form[name] ?? ""} onChange={onChange} required={required} {...props} />
+    </label>
+  );
+}
+
 function Editor({ record, onClose, onSaved }) {
-  const [form, setForm] = useState(() => (record ? structuredClone(record) : structuredClone(emptyResult)));
-  const [photo, setPhoto] = useState(null);
-  const [removePhoto, setRemovePhoto] = useState(false);
+  const [form, setForm] = useState(() => ({
+    ...emptyResult,
+    ...(record
+      ? {
+          documentType: record.documentType,
+          registrationNumber: record.registrationNumber,
+          documentNumber: record.documentNumber,
+          studentName: record.studentName,
+          programme: record.programme || "",
+          examSession: record.examSession || "",
+          issueDate: record.issueDate || "",
+        }
+      : {}),
+  }));
+  const [pdf, setPdf] = useState(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
@@ -116,75 +125,18 @@ function Editor({ record, onClose, onSaved }) {
     setError("");
   }
 
-  function updateTerm(index, key, value) {
-    setForm((current) => ({
-      ...current,
-      terms: current.terms.map((term, termIndex) => (termIndex === index ? { ...term, [key]: value } : term)),
-    }));
-  }
-
-  function addTerm() {
-    setForm((current) => ({ ...current, terms: [...current.terms, emptyTerm(current.terms.length + 1)] }));
-  }
-
-  function removeTerm(index) {
-    setForm((current) => ({ ...current, terms: current.terms.filter((_, termIndex) => termIndex !== index) }));
-  }
-
-  function addCourse(termIndex) {
-    setForm((current) => ({
-      ...current,
-      terms: current.terms.map((term, index) =>
-        index === termIndex ? { ...term, courses: [...term.courses, emptyCourse()] } : term,
-      ),
-    }));
-  }
-
-  function updateCourse(termIndex, courseIndex, key, value) {
-    setForm((current) => ({
-      ...current,
-      terms: current.terms.map((term, index) =>
-        index === termIndex
-          ? {
-              ...term,
-              courses: term.courses.map((course, indexOfCourse) =>
-                indexOfCourse === courseIndex ? { ...course, [key]: value } : course,
-              ),
-            }
-          : term,
-      ),
-    }));
-  }
-
-  function removeCourse(termIndex, courseIndex) {
-    setForm((current) => ({
-      ...current,
-      terms: current.terms.map((term, index) =>
-        index === termIndex
-          ? { ...term, courses: term.courses.filter((_, indexOfCourse) => indexOfCourse !== courseIndex) }
-          : term,
-      ),
-    }));
-  }
-
   async function save(event) {
     event.preventDefault();
+    if (!record && !pdf) {
+      setError("Upload the result PDF for this record.");
+      return;
+    }
     setSaving(true);
     setError("");
     try {
-      if (photo && photo.size > 2 * 1024 * 1024) throw new Error("The candidate photo must be 2 MB or smaller.");
       const body = new FormData();
-      const payload = { ...form };
-      delete payload.hasPhoto;
-      delete payload.photoFilename;
-      delete payload.photoUrl;
-      delete payload.createdAt;
-      delete payload.updatedAt;
-      delete payload.id;
-      body.set("payload", JSON.stringify(payload));
-      if (photo) body.set("candidatePhoto", photo);
-      body.set("removePhoto", String(removePhoto));
-
+      body.set("payload", JSON.stringify(form));
+      if (pdf) body.set("resultPdf", pdf);
       const data = await api(record ? `/api/admin/results/${record.id}` : "/api/admin/results", {
         method: record ? "PUT" : "POST",
         body,
@@ -203,233 +155,59 @@ function Editor({ record, onClose, onSaved }) {
       <section className="result-editor" role="dialog" aria-modal="true" aria-labelledby="editor-title">
         <header>
           <div>
-            <span className="eyebrow">{record ? "Edit structured record" : "New structured record"}</span>
-            <h2 id="editor-title">{record ? "Edit exam result" : "Add exam result"}</h2>
+            <span className="eyebrow">PDF result record</span>
+            <h2 id="editor-title">{record ? "Edit result" : "Add result"}</h2>
           </div>
           <button className="editor-close" type="button" onClick={onClose}>×</button>
         </header>
-
         <form onSubmit={save}>
           <fieldset>
-            <legend><span>01</span> Verification identity</legend>
+            <legend><b>01</b> Public verification identifiers</legend>
+            <p className="fieldset-note">
+              A visitor is shown this PDF only when all three values match exactly what is entered here.
+            </p>
             <div className="editor-grid">
-              <label className="full-field">
+              <label>
                 <span>Document type *</span>
-                <select name="documentType" value={form.documentType} onChange={field}>
-                  <option value="Degree">Degree</option>
-                  <option value="Academic Transcript">Academic Transcript</option>
-                  <option value="Skill Development Certificate">Skill Development Certificate</option>
+                <select name="documentType" value={form.documentType} onChange={field} required>
+                  {documentTypes.map((type) => <option key={type}>{type}</option>)}
                 </select>
               </label>
-              <label>
-                <span>Registration number *</span>
-                <input name="registrationNumber" value={form.registrationNumber} onChange={field} required />
-              </label>
-              <label>
-                <span>Document number *</span>
-                <input name="documentNumber" value={form.documentNumber} onChange={field} required />
-              </label>
-              <label>
-                <span>Certificate number</span>
-                <input name="certificateNumber" value={form.certificateNumber} onChange={field} />
-              </label>
-              <label>
-                <span>Examination session *</span>
-                <input name="examSession" value={form.examSession} onChange={field} placeholder="e.g. May 2026" required />
-              </label>
+              <TextField label="Registration number" name="registrationNumber" form={form} onChange={field} required />
+              <TextField label="Document number" name="documentNumber" form={form} onChange={field} required />
             </div>
           </fieldset>
 
           <fieldset>
-            <legend><span>02</span> Candidate information</legend>
-            <div className="editor-grid">
-              <label className="full-field">
-                <span>Candidate name *</span>
-                <input name="studentName" value={form.studentName} onChange={field} required />
-              </label>
-              <label>
-                <span>Father&apos;s name</span>
-                <input name="fatherName" value={form.fatherName} onChange={field} />
-              </label>
-              <label>
-                <span>Mother&apos;s name</span>
-                <input name="motherName" value={form.motherName} onChange={field} />
-              </label>
-              <label>
-                <span>Batch year *</span>
-                <input name="batchYear" value={form.batchYear} onChange={field} placeholder="e.g. 2022" required />
-              </label>
-              <label>
-                <span>Study mode *</span>
-                <input name="studyMode" value={form.studyMode} onChange={field} placeholder="e.g. Regular" required />
-              </label>
-              <label className="full-field">
-                <span>Programme *</span>
-                <input name="programme" value={form.programme} onChange={field} required />
-              </label>
-              <label className="full-field photo-input">
-                <span>Candidate photo · JPG, PNG or WebP · 2 MB maximum</span>
-                <input
-                  type="file"
-                  accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp"
-                  onChange={(event) => {
-                    setPhoto(event.target.files?.[0] || null);
-                    setRemovePhoto(false);
-                  }}
-                />
+            <legend><b>02</b> Result PDF</legend>
+            <p className="fieldset-note">
+              The uploaded file is stored in Supabase storage; only a reference is kept in MySQL.
+            </p>
+            <label className="photo-input full-field">
+              <span>{record ? "Replace PDF (optional)" : "Result PDF *"}</span>
+              <input
+                type="file"
+                accept="application/pdf,.pdf"
+                onChange={(event) => { setPdf(event.target.files?.[0] || null); setError(""); }}
+              />
+              {record?.pdfFilename && (
                 <small>
-                  {photo?.name || (record?.hasPhoto ? `Current: ${record.photoFilename || "candidate photo"}` : "No photo selected")}
+                  Current file: <b>{record.pdfFilename}</b> ({readableSize(record.pdfSizeBytes)}){" "}
+                  <a href={record.pdfUrl} target="_blank" rel="noreferrer">Open ↗</a>
                 </small>
-              </label>
-              {record?.hasPhoto && (
-                <label className="remove-photo full-field">
-                  <input
-                    type="checkbox"
-                    checked={removePhoto}
-                    onChange={(event) => {
-                      setRemovePhoto(event.target.checked);
-                      if (event.target.checked) setPhoto(null);
-                    }}
-                  />
-                  Remove current candidate photo
-                </label>
               )}
-            </div>
+              {pdf && <small>Selected: {pdf.name} ({readableSize(pdf.size)})</small>}
+            </label>
           </fieldset>
 
           <fieldset>
-            <legend><span>03</span> Overall result and document footer</legend>
+            <legend><b>03</b> Reference details</legend>
+            <p className="fieldset-note">Used to label the record in this dashboard and above the PDF viewer.</p>
             <div className="editor-grid">
-              <label>
-                <span>Result status *</span>
-                <select name="resultStatus" value={form.resultStatus} onChange={field}>
-                  <option>Pass</option>
-                  <option>Distinction</option>
-                  <option>First Division</option>
-                  <option>Second Division</option>
-                  <option>Completed</option>
-                </select>
-              </label>
-              <label>
-                <span>CGPA</span>
-                <input name="cgpa" type="number" min="0" max="10" step="0.01" value={form.cgpa} onChange={field} />
-              </label>
-              <label>
-                <span>Equivalent percentage</span>
-                <input
-                  name="equivalentPercentage"
-                  type="number"
-                  min="0"
-                  max="100"
-                  step="0.01"
-                  value={form.equivalentPercentage}
-                  onChange={field}
-                />
-              </label>
-              <label>
-                <span>Issue date *</span>
-                <input name="issueDate" type="date" value={form.issueDate} onChange={field} required />
-              </label>
-              <label>
-                <span>Print date *</span>
-                <input name="printDate" type="date" value={form.printDate} onChange={field} required />
-              </label>
-              <label>
-                <span>Place *</span>
-                <input name="place" value={form.place} onChange={field} required />
-              </label>
-              <label className="full-field">
-                <span>Completion statement</span>
-                <input name="completionStatement" value={form.completionStatement} onChange={field} />
-              </label>
-            </div>
-          </fieldset>
-
-          <fieldset>
-            <div className="terms-heading">
-              <legend><span>04</span> Terms and course rows</legend>
-              <button className="small-outline-button" type="button" onClick={addTerm}>+ Add term</button>
-            </div>
-            {!form.terms.length && (
-              <div className="no-terms">
-                <p>No terms added yet. Add a term, then enter each course as plain text.</p>
-                <button type="button" onClick={addTerm}>Add first term</button>
-              </div>
-            )}
-            <div className="term-editors">
-              {form.terms.map((term, termIndex) => (
-                <section className="term-editor" key={termIndex}>
-                  <header>
-                    <div className="term-meta-inputs">
-                      <label>
-                        <span>Term label</span>
-                        <input
-                          value={term.label}
-                          onChange={(event) => updateTerm(termIndex, "label", event.target.value)}
-                        />
-                      </label>
-                      <label>
-                        <span>TGPA</span>
-                        <input
-                          type="number"
-                          min="0"
-                          max="10"
-                          step="0.01"
-                          value={term.tgpa}
-                          onChange={(event) => updateTerm(termIndex, "tgpa", event.target.value)}
-                        />
-                      </label>
-                      <label>
-                        <span>Equivalent %</span>
-                        <input
-                          type="number"
-                          min="0"
-                          max="100"
-                          step="0.01"
-                          value={term.percentage}
-                          onChange={(event) => updateTerm(termIndex, "percentage", event.target.value)}
-                        />
-                      </label>
-                    </div>
-                    <button type="button" onClick={() => removeTerm(termIndex)} aria-label="Remove term">×</button>
-                  </header>
-                  <div className="course-editor-heading">
-                    <strong>Course rows</strong>
-                    <button type="button" onClick={() => addCourse(termIndex)}>+ Add course</button>
-                  </div>
-                  {!term.courses.length && <p className="empty-courses">No courses in this term.</p>}
-                  {term.courses.map((course, courseIndex) => (
-                    <div className="course-editor-row" key={courseIndex}>
-                      <span>{courseIndex + 1}</span>
-                      <input
-                        placeholder="Course code"
-                        value={course.code}
-                        onChange={(event) => updateCourse(termIndex, courseIndex, "code", event.target.value)}
-                      />
-                      <input
-                        placeholder="Course name"
-                        value={course.name}
-                        onChange={(event) => updateCourse(termIndex, courseIndex, "name", event.target.value)}
-                      />
-                      <input
-                        placeholder="Credits"
-                        type="number"
-                        min="0"
-                        max="99"
-                        step="0.5"
-                        value={course.credits}
-                        onChange={(event) => updateCourse(termIndex, courseIndex, "credits", event.target.value)}
-                      />
-                      <input
-                        placeholder="Grade"
-                        value={course.grade}
-                        onChange={(event) => updateCourse(termIndex, courseIndex, "grade", event.target.value)}
-                      />
-                      <button type="button" onClick={() => removeCourse(termIndex, courseIndex)} aria-label="Remove course">×</button>
-                    </div>
-                  ))}
-                </section>
-              ))}
+              <TextField label="Student name" name="studentName" form={form} onChange={field} required />
+              <TextField label="Programme" name="programme" form={form} onChange={field} />
+              <TextField label="Examination session" name="examSession" form={form} onChange={field} />
+              <TextField label="Issue date" name="issueDate" form={form} onChange={field} type="date" />
             </div>
           </fieldset>
 
@@ -437,7 +215,7 @@ function Editor({ record, onClose, onSaved }) {
           <footer>
             <button className="outline-button" type="button" onClick={onClose}>Cancel</button>
             <button className="orange-button" type="submit" disabled={saving}>
-              {saving ? "Saving structured result…" : record ? "Save changes" : "Publish result"} <span>→</span>
+              {saving ? "Uploading result…" : record ? "Save changes" : "Publish result"} <span>→</span>
             </button>
           </footer>
         </form>
@@ -455,7 +233,10 @@ export default function AdminDashboard() {
   const [deleteRecord, setDeleteRecord] = useState(null);
   const [message, setMessage] = useState("");
 
-  const photoCount = useMemo(() => results.filter((result) => result.hasPhoto).length, [results]);
+  const storedBytes = useMemo(
+    () => results.reduce((total, result) => total + (result.pdfSizeBytes || 0), 0),
+    [results],
+  );
 
   async function loadResults(query = "") {
     setLoading(true);
@@ -523,7 +304,7 @@ export default function AdminDashboard() {
       <section className="admin-content">
         <header className="admin-page-header">
           <div>
-            <span className="eyebrow">Structured records management</span>
+            <span className="eyebrow">PDF records management</span>
             <h1>Exam results</h1>
           </div>
           <button className="orange-button" type="button" onClick={() => setEditor(null)}>+ Add result</button>
@@ -531,7 +312,7 @@ export default function AdminDashboard() {
 
         <section className="admin-metrics">
           <article><span>Total records</span><strong>{results.length}</strong><p>Published to the verifier</p></article>
-          <article><span>Candidate photos</span><strong>{photoCount}</strong><p>Stored securely in MySQL</p></article>
+          <article><span>Stored PDFs</span><strong>{readableSize(storedBytes)}</strong><p>Held in Supabase storage</p></article>
           <article>
             <span>Last updated</span>
             <strong>{results[0]?.updatedAt ? new Date(results[0].updatedAt).toLocaleDateString("en-IN") : "—"}</strong>
@@ -541,7 +322,7 @@ export default function AdminDashboard() {
 
         <section className="admin-records">
           <header>
-            <div><h2>All result records</h2><p>Plain fields are rendered into the public transcript HTML.</p></div>
+            <div><h2>All result records</h2><p>Each record maps the three lookup identifiers to one uploaded PDF.</p></div>
             <input
               type="search"
               placeholder="Search name, registration or document…"
@@ -555,22 +336,24 @@ export default function AdminDashboard() {
           ) : !results.length ? (
             <div className="records-empty">
               <strong>No results yet</strong>
-              <p>Create the first structured transcript record.</p>
+              <p>Add the identifiers for a record and upload its result PDF.</p>
               <button className="orange-button" type="button" onClick={() => setEditor(null)}>Add first result</button>
             </div>
           ) : (
             <div className="records-table-wrap">
               <table>
-                <thead><tr><th>Candidate</th><th>Registration</th><th>Document</th><th>Session</th><th>Terms</th><th>Photo</th><th /></tr></thead>
+                <thead><tr><th>Candidate</th><th>Registration</th><th>Document</th><th>Session</th><th>PDF</th><th /></tr></thead>
                 <tbody>
                   {results.map((record) => (
                     <tr key={record.id}>
                       <td><strong>{record.studentName}</strong><small>{record.programme}</small></td>
                       <td className="mono">{record.registrationNumber}</td>
                       <td><strong className="mono">{record.documentNumber}</strong><small>{record.documentType}</small></td>
-                      <td>{record.examSession}</td>
-                      <td>{record.terms.length}</td>
-                      <td>{record.hasPhoto ? "● Added" : "○ None"}</td>
+                      <td>{record.examSession || "—"}</td>
+                      <td>
+                        <a href={record.pdfUrl} target="_blank" rel="noreferrer">View ↗</a>
+                        <small>{readableSize(record.pdfSizeBytes)}</small>
+                      </td>
                       <td>
                         <div className="record-actions">
                           <button type="button" onClick={() => setEditor(record)} aria-label={`Edit ${record.studentName}`}>✎</button>
@@ -603,7 +386,7 @@ export default function AdminDashboard() {
           <section>
             <span>!</span>
             <h2>Remove this result?</h2>
-            <p>The structured record and candidate photo will be permanently deleted.</p>
+            <p>The record and its uploaded PDF will be permanently deleted.</p>
             <div>
               <button className="outline-button" type="button" onClick={() => setDeleteRecord(null)}>Keep record</button>
               <button className="danger-button" type="button" onClick={removeRecord}>Remove result</button>
